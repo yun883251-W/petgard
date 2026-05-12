@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>抓拍历史管理系统</title>
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', Roboto, sans-serif;
+        }
+        .main-container { padding: 20px; }
+
+        /* 卡片样式 */
+        .info-card {
+            background: #1f1f1f;
+            border: 1px solid #333;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .card-header {
+            background: #2a2a2a;
+            border-bottom: 1px solid #333;
+            font-weight: bold;
+        }
+
+        /* 表格样式 */
+        .history-table-container {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .table { color: #ccc; margin-bottom: 0; }
+        .table-hover tbody tr:hover { background-color: #2c2c2c; }
+
+        /* 图表容器 */
+        .chart-container {
+            background: #1f1f1f;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        /* 图片预览样式 */
+        .image-preview {
+            max-width: 100px;
+            max-height: 100px;
+            object-fit: cover;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .pagination {
+            color: #ccc;
+        }
+        .page-item.active .page-link {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+        }
+        .page-link {
+            color: #0d6efd;
+            background-color: #2a2a2a;
+            border: 1px solid #444;
+        }
+        .page-link:hover {
+            color: #fff;
+            background-color: #1a1a1a;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">📸 抓拍历史管理系统</span>
+            <div>
+                <span id="clock" class="text-muted small me-3"></span>
+                <a href="/" class="btn btn-sm btn-outline-info">返回主页</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid main-container">
+        <div class="row">
+            <div class="col-lg-12">
+                <!-- 搜索和过滤工具栏 -->
+                <div class="card info-card">
+                    <div class="card-header">筛选和搜索</div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <label for="startDate" class="form-label">开始日期</label>
+                                <input type="date" class="form-control" id="startDate">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="endDate" class="form-label">结束日期</label>
+                                <input type="date" class="form-control" id="endDate">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="petIdFilter" class="form-label">宠物ID</label>
+                                <input type="text" class="form-control" id="petIdFilter" placeholder="输入宠物ID">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="searchQuery" class="form-label">搜索关键词</label>
+                                <input type="text" class="form-control" id="searchQuery" placeholder="时间/ID等">
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <button class="btn btn-primary me-2" onclick="applyFilters()">应用筛选</button>
+                            <button class="btn btn-outline-secondary me-2" onclick="resetFilters()">重置</button>
+                            <button class="btn btn-success" onclick="exportData()">导出数据</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 统计摘要 -->
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="card info-card text-center">
+                            <div class="card-body">
+                                <h3 id="totalEvents">0</h3>
+                                <p class="text-muted mb-0">总抓拍数</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card info-card text-center">
+                            <div class="card-body">
+                                <h3 id="uniquePets">0</h3>
+                                <p class="text-muted mb-0">唯一宠物数</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card info-card text-center">
+                            <div class="card-body">
+                                <h3 id="todayCount">0</h3>
+                                <p class="text-muted mb-0">今日抓拍</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card info-card text-center">
+                            <div class="card-body">
+                                <h3 id="firstEvent">-</h3>
+                                <p class="text-muted mb-0">首次记录</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 统计图表 -->
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <div class="chart-container">
+                            <h5>每日闯入统计</h5>
+                            <canvas id="dailyChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="chart-container">
+                            <h5>小时闯入模式</h5>
+                            <canvas id="hourlyChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <div class="chart-container">
+                            <h5>Top 闯入者</h5>
+                            <canvas id="topIntrudersChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="chart-container">
+                            <h5>数据分布</h5>
+                            <canvas id="distributionChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 抓拍记录列表 -->
+                <div class="card info-card">
+                    <div class="card-header d-flex justify-content-between">
+                        <span>抓拍记录列表</span>
+                        <div>
+                            <span class="me-3">显示 <span id="displayStart">1</span>-<span id="displayEnd">0</span> 条，共 <span id="totalCount">0</span> 条</span>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="refreshHistory()">刷新</button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-dark table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>预览</th>
+                                        <th>时间</th>
+                                        <th>宠物ID</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="historyTableBody">
+                                    <tr><td colspan="4" class="text-center">加载中...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- 分页 -->
+                        <nav aria-label="历史记录分页" class="p-3">
+                            <ul class="pagination justify-content-center" id="paginationContainer">
+                                <!-- 分页控件将通过JS生成 -->
+                            </ul>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 图片查看模态框 -->
+    <div class="modal fade" id="imageModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header border-0">
+                    <h5 class="modal-title" id="imageModalTitle">抓拍详情</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <img id="modalImage" src="" class="w-100 rounded-bottom" alt="抓拍图片" style="max-height: 70vh; object-fit: contain;">
+                    <div class="p-3 bg-dark text-light">
+                        <div id="imageDetails"></div>
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-primary me-2" onclick="downloadImage()">下载图片</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteRecord()">删除记录</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.bootcdn.net/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 全局变量
+        let currentPage = 1;
+        let itemsPerPage = 10;
+        let allHistoryData = [];
+        let filteredHistoryData = [];
+        let currentImageInfo = null;
+
+        // 1. 更新时钟
+        setInterval(() => {
+            document.getElementById('clock').innerText = new Date().toLocaleString();
+        }, 1000);
+
+        // 2. 加载统计摘要
+        function loadSummaryStats() {
+            fetch('/get_statistics')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('totalEvents').innerText = data.total.total_events || 0;
+                    document.getElementById('uniquePets').innerText = data.total.unique_pets || 0;
+
+                    const today = new Date();
+                    const todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+
+                    // 计算今天的抓拍数
+                    let todayCount = 0;
+                    for(const date in data.daily) {
+                        if(date.startsWith(todayStr)) {
+                            todayCount = data.daily[date];
+                            break;
+                        }
+                    }
+                    document.getElementById('todayCount').innerText = todayCount;
+
+                    const firstEvent = data.total.first_event ? new Date(data.total.first_event).toLocaleDateString() : '-';
+                    document.getElementById('firstEvent').innerText = firstEvent;
+                })
+                .catch(err => console.error('加载统计摘要失败:', err));
+        }
+
+        // 3. 初始化图表
+        let dailyChart, hourlyChart, topIntrudersChart, distributionChart;
+
+        function initCharts() {
+            // 每日统计图
+            const dailyCtx = document.getElementById('dailyChart').getContext('2d');
+            dailyChart = new Chart(dailyCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: '闯入次数',
+                        data: [],
+                        borderColor: 'rgb(255, 99, 132)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+
+            // 小时统计图
+            const hourlyCtx = document.getElementById('hourlyChart').getContext('2d');
+            hourlyChart = new Chart(hourlyCtx, {
+                type: 'bar',
+                data: {
+                    labels: Array.from({length: 24}, (_, i) => `${i}时`),
+                    datasets: [{
+                        label: '闯入次数',
+                        data: Array(24).fill(0),
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+
+            // Top闯入者图表
+            const topIntrudersCtx = document.getElementById('topIntrudersChart').getContext('2d');
+            topIntrudersChart = new Chart(topIntrudersCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        data: [],
+                        backgroundColor: [
+                            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
+                            '#FF9F40', '#FF6384', '#C9CBCF', '#4BC0C0', '#FF6384'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                        }
+                    }
+                }
+            });
+
+            // 分布统计图表
+            const distCtx = document.getElementById('distributionChart').getContext('2d');
+            distributionChart = new Chart(distCtx, {
+                type: 'pie',
+                data: {
+                    labels: ['今日', '本周', '本月'],
+                    datasets: [{
+                        data: [0, 0, 0],
+                        backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                        }
+                    }
+                }
+            });
+        }
+
+        // 4. 更新图表
+        function updateCharts() {
+            fetch('/get_statistics')
+                .then(res => res.json())
+                .then(data => {
+                    updateDailyChart(data.daily);
+                    updateHourlyChart(data.hourly);
+                    updateTopIntrudersChart(data.top_intruders);
+                    updateDistributionChart(data.daily);
+                })
+                .catch(err => console.error('更新图表失败:', err));
+        }
+
+        function updateDailyChart(dailyData) {
+            if (!dailyChart) return;
+
+            const dates = Object.keys(dailyData).sort();
+            const values = dates.map(date => dailyData[date]);
+
+            dailyChart.data.labels = dates.map(date => date.split('-')[2] + '日');
+            dailyChart.data.datasets[0].data = values;
+            dailyChart.update();
+        }
+
+        function updateHourlyChart(hourlyData) {
+            if (!hourlyChart) return;
+
+            const hours = Array.from({length: 24}, (_, i) => i.toString());
+            const values = hours.map(h => hourlyData[h] || 0);
+
+            hourlyChart.data.datasets[0].data = values;
+            hourlyChart.update();
+        }
+
+        function updateTopIntrudersChart(topData) {
+            if (!topIntrudersChart) return;
+
+            if (!topData || topData.length === 0) {
+                topIntrudersChart.data.labels = ['暂无数据'];
+                topIntrudersChart.data.datasets[0].data = [1];
+                topIntrudersChart.options.plugins.legend.display = false;
+            } else {
+                const labels = topData.map(item => `ID: ${item.pet_id}`);
+                const values = topData.map(item => item.count);
+
+                topIntrudersChart.data.labels = labels;
+                topIntrudersChart.data.datasets[0].data = values;
+                topIntrudersChart.options.plugins.legend.display = true;
+            }
+
+            topIntrudersChart.update();
+        }
+
+        function updateDistributionChart(dailyData) {
+            if (!distributionChart) return;
+
+            const today = new Date();
+            const thisWeekStart = new Date(today);
+            thisWeekStart.setDate(today.getDate() - today.getDay()); // 周一为一周开始
+            const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+            let todayCount = 0;
+            let weekCount = 0;
+            let monthCount = 0;
+
+            for (const dateStr in dailyData) {
+                const date = new Date(dateStr);
+                const count = dailyData[dateStr];
+
+                if (date.toDateString() === today.toDateString()) {
+                    todayCount += count;
+                }
+
+                if (date >= thisWeekStart && date <= today) {
+                    weekCount += count;
+                }
+
+                if (date >= thisMonthStart && date <= today) {
+                    monthCount += count;
+                }
+            }
+
+            distributionChart.data.datasets[0].data = [todayCount, weekCount, monthCount];
+            distributionChart.update();
+        }
+
+        // 5. 加载抓拍历史
+        function loadHistory(page = 1) {
+            currentPage = page;
+
+            fetch('/get_history')
+                .then(res => res.json())
+                .then(data => {
+                    allHistoryData = data;
+                    filteredHistoryData = [...allHistoryData];
+                    renderHistoryTable();
+                    updatePagination();
+                })
+                .catch(err => console.error('获取历史记录失败:', err));
+        }
+
+        // 6. 渲染历史记录表格
+        function renderHistoryTable() {
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = Math.min(startIndex + itemsPerPage, filteredHistoryData.length);
+            const pageData = filteredHistoryData.slice(startIndex, endIndex);
+
+            const tbody = document.getElementById('historyTableBody');
+
+            if (pageData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center">没有找到符合条件的记录</td></tr>';
+                return;
+            }
+
+            let html = '';
+            pageData.forEach(item => {
+                const time = new Date(item.Time.replace(/-/g, '/')).toLocaleString();
+                html += `
+                <tr>
+                    <td>
+                        ${item.Image_File ? `
+                            <img src="/image_storage/${item.Image_File}"
+                                 class="image-preview"
+                                 alt="抓拍图片"
+                                 data-bs-toggle="modal"
+                                 data-bs-target="#imageModal"
+                                 onclick="showImage('${item.Image_File}', '${time}', '${item.Pet_ID}')">
+                        ` : '-'}
+                    </td>
+                    <td>${time}</td>
+                    <td>ID: ${item.Pet_ID}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary me-1"
+                                onclick="showImage('${item.Image_File}', '${time}', '${item.Pet_ID}')">
+                            查看
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning me-1"
+                                onclick="downloadImageFromRow('${item.Image_File}')">
+                            下载
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger"
+                                onclick="confirmDelete('${item.Image_File}', '${item.Time}', '${item.Pet_ID}')">
+                            删除
+                        </button>
+                    </td>
+                </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+
+            // 更新显示范围文本
+            document.getElementById('displayStart').innerText = startIndex + 1;
+            document.getElementById('displayEnd').innerText = endIndex;
+            document.getElementById('totalCount').innerText = filteredHistoryData.length;
+        }
+
+        // 7. 分页处理
+        function updatePagination() {
+            const totalPages = Math.ceil(filteredHistoryData.length / itemsPerPage);
+            const pagination = document.getElementById('paginationContainer');
+
+            let html = '';
+
+            // 上一页按钮
+            if (currentPage > 1) {
+                html += `<li class="page-item"><a class="page-link" href="#" onclick="changePage(${currentPage - 1})">上一页</a></li>`;
+            } else {
+                html += `<li class="page-item disabled"><a class="page-link" href="#">上一页</a></li>`;
+            }
+
+            // 页码
+            for (let i = 1; i <= totalPages; i++) {
+                if (Math.abs(i - currentPage) <= 2 || i <= 2 || i >= totalPages - 1) {
+                    const activeClass = i === currentPage ? 'active' : '';
+                    html += `<li class="page-item ${activeClass}"><a class="page-link" href="#" onclick="changePage(${i})">${i}</a></li>`;
+
+                    // 添加省略号
+                    if (i === 2 && currentPage > 4) {
+                        html += `<li class="page-item disabled"><a class="page-link" href="#">...</a></li>`;
+                    } else if (i === totalPages - 2 && currentPage < totalPages - 3) {
+                        html += `<li class="page-item disabled"><a class="page-link" href="#">...</a></li>`;
+                    }
+                }
+            }
+
+            // 下一页按钮
+            if (currentPage < totalPages) {
+                html += `<li class="page-item"><a class="page-link" href="#" onclick="changePage(${currentPage + 1})">下一页</a></li>`;
+            } else {
+                html += `<li class="page-item disabled"><a class="page-link" href="#">下一页</a></li>`;
+            }
+
+            pagination.innerHTML = html;
+        }
+
+        function changePage(page) {
+            currentPage = page;
+            renderHistoryTable();
+            updatePagination();
+            // 滚动到表格顶部
+            document.querySelector('.table-responsive').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // 8. 图片查看和操作
+        function showImage(imageFilename, time, petId) {
+            const modalImage = document.getElementById('modalImage');
+            const modalTitle = document.getElementById('imageModalTitle');
+            const imageDetails = document.getElementById('imageDetails');
+
+            const imageUrl = `/image_storage/${imageFilename}?t=${new Date().getTime()}`;
+
+            modalImage.src = imageUrl;
+            modalTitle.innerText = `抓拍详情：${time}`;
+            imageDetails.innerHTML = `
+                <strong>时间:</strong> ${time}<br>
+                <strong>宠物ID:</strong> ${petId}<br>
+                <strong>文件名:</strong> ${imageFilename}
+            `;
+
+            // 保存当前图片信息以便后续操作
+            currentImageInfo = { filename: imageFilename, time: time, petId: petId };
+        }
+
+        function downloadImage() {
+            if (!currentImageInfo) return;
+
+            const link = document.createElement('a');
+            link.href = `/image_storage/${currentImageInfo.filename}`;
+            link.download = `intruder_${currentImageInfo.petId}_${currentImageInfo.time.replace(/[: ]/g, '_')}.jpg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function downloadImageFromRow(imageFilename) {
+            const link = document.createElement('a');
+            link.href = `/image_storage/${imageFilename}`;
+            link.download = imageFilename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function confirmDelete(imageFilename, time, petId) {
+            if (confirm(`确定要删除 ${time} 的抓拍记录 (ID: ${petId}) 吗？`)) {
+                deleteRecordFromServer(imageFilename, time, petId);
+            }
+        }
+
+        function deleteRecord() {
+            if (!currentImageInfo) return;
+
+            if (confirm(`确定要删除 ${currentImageInfo.time} 的抓拍记录 (ID: ${currentImageInfo.petId}) 吗？`)) {
+                deleteRecordFromServer(currentImageInfo.filename, currentImageInfo.time, currentImageInfo.petId);
+            }
+        }
+
+        function deleteRecordFromServer(imageFilename, time, petId) {
+            // 向服务器发送删除请求
+            fetch('/api/delete_capture', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    image_filename: imageFilename
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 成功删除后，重新加载数据
+                    loadHistory(currentPage);
+                    alert(`成功删除记录：${time} (ID: ${petId})`);
+                } else {
+                    alert(`删除失败: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                console.error('删除请求失败:', error);
+                alert('删除请求失败，请检查网络连接');
+            });
+        }
+
+        // 9. 过滤和搜索功能
+        function applyFilters() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const petIdFilter = document.getElementById('petIdFilter').value.toLowerCase();
+            const searchQuery = document.getElementById('searchQuery').value.toLowerCase();
+
+            filteredHistoryData = allHistoryData.filter(item => {
+                const itemDate = new Date(item.Time.replace(/-/g, '/'));
+                const itemTimeStr = item.Time.toLowerCase();
+                const itemPetId = item.Pet_ID.toString().toLowerCase();
+
+                // 日期过滤
+                if (startDate && itemDate < new Date(startDate)) return false;
+                if (endDate && itemDate > new Date(new Date(endDate).setHours(23, 59, 59))) return false;
+
+                // ID过滤
+                if (petIdFilter && !itemPetId.includes(petIdFilter)) return false;
+
+                // 搜索查询
+                if (searchQuery &&
+                    !itemTimeStr.includes(searchQuery) &&
+                    !itemPetId.includes(searchQuery)) {
+                    return false;
+                }
+
+                return true;
+            });
+
+            currentPage = 1;
+            renderHistoryTable();
+            updatePagination();
+        }
+
+        function resetFilters() {
+            document.getElementById('startDate').value = '';
+            document.getElementById('endDate').value = '';
+            document.getElementById('petIdFilter').value = '';
+            document.getElementById('searchQuery').value = '';
+
+            filteredHistoryData = [...allHistoryData];
+            currentPage = 1;
+            renderHistoryTable();
+            updatePagination();
+        }
+
+        function refreshHistory() {
+            loadHistory(currentPage);
+        }
+
+        function exportData() {
+            // 简单的CSV导出功能
+            let csvContent = "data:text/csv;charset=utf-8,时间,宠物ID,图片文件\n";
+
+            filteredHistoryData.forEach(item => {
+                csvContent += `"${item.Time}","${item.Pet_ID}","${item.Image_File}"\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "capture_history_" + new Date().toISOString().split('T')[0] + ".csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 10. 页面初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initCharts();
+            loadSummaryStats();
+            loadHistory();
+            updateCharts();
+
+            // 设置日期输入框的默认值为最近一周
+            const today = new Date();
+            const weekAgo = new Date();
+            weekAgo.setDate(today.getDate() - 7);
+
+            document.getElementById('endDate').value = today.toISOString().split('T')[0];
+            document.getElementById('startDate').value = weekAgo.toISOString().split('T')[0];
+        });
+    </script>
+</body>
+</html>

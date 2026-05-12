@@ -1,0 +1,72 @@
+# ============================================
+# PetGuard_System 专用 .gitignore
+# ============================================
+
+### --- 1. 项目特定数据 (你要求忽略的路径) ---
+# 忽略原始视频数据和监控记录
+E:/prprojets/PetGuard_System/data/
+data/
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# 忽略模型权重文件及大规模数据集
+E:/prprojets/PetGuard_System/models/
+models/
+*.pth
+*.onnx
+*.pkl
+*.h5
+*.weights
+*.bin
+
+### --- 2. Python 缓存与编译文件 ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+### --- 3. 虚拟环境 (强烈建议忽略) ---
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+### --- 4. 环境变量与私密信息 ---
+.env
+.flaskenv
+secret_key.txt
+*.log
+
+### --- 5. 数据库
+*.sqlite3
+*.db
+
+### --- 6. IDE 与系统临时文件 ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 忽略 PyCharm / IntelliJ 的配置文件
+.idea/
+*.iml
