@@ -2,22 +2,37 @@
     "detection": {
         "model_path": "models/yolov8s.pt",
         "confidence_threshold": 0.4,
-        "classes": [15, 16],
+        "classes": [
+            15,
+            16
+        ],
         "image_size": 640
     },
     "fence": {
-        "polygon": [[100, 100], [200, 100], [200, 200], [100, 200]],
+        "polygon": [
+            [
+                100,
+                100
+            ],
+            [
+                200,
+                100
+            ],
+            [
+                200,
+                200
+            ],
+            [
+                100,
+                200
+            ]
+        ],
         "enable_fencing": true
     },
-    "recording": {
-        "fps": 20.0,
-        "record_on_intrusion": true,
-        "close_delay_seconds": 2.0
-    },
     "storage": {
-        "video_path": "data/videos",
         "image_path": "data/images",
-        "log_path": "data/logs"
+        "log_path": "data/logs",
+        "video_path": "data/videos"
     },
     "performance": {
         "batch_size": 1,
@@ -27,5 +42,10 @@
     "ui": {
         "web_port": 5000,
         "web_host": "0.0.0.0"
+    },
+    "recording": {
+        "fps": 20.0,
+        "record_on_intrusion": true,
+        "close_delay_seconds": 2.0
     }
 }

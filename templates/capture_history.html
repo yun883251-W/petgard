@@ -246,9 +246,10 @@
         // 全局变量
         let currentPage = 1;
         let itemsPerPage = 10;
-        let allHistoryData = [];
-        let filteredHistoryData = [];
+        let totalRecords = 0;
+        let currentPageData = [];
         let currentImageInfo = null;
+        let searchResultsCache = null;  // 搜索模式下的完整结果缓存
 
         // 1. 更新时钟
         setInterval(() => {
@@ -462,15 +463,15 @@
             distributionChart.update();
         }
 
-        // 5. 加载抓拍历史
+        // 5. 加载抓拍历史（服务端分页）
         function loadHistory(page = 1) {
             currentPage = page;
 
-            fetch('/get_history')
+            fetch(`/get_history?page=${page}&per_page=${itemsPerPage}`)
                 .then(res => res.json())
                 .then(data => {
-                    allHistoryData = data;
-                    filteredHistoryData = [...allHistoryData];
+                    currentPageData = data.records || [];
+                    totalRecords = data.total || 0;
                     renderHistoryTable();
                     updatePagination();
                 })
@@ -479,20 +480,20 @@
 
         // 6. 渲染历史记录表格
         function renderHistoryTable() {
-            const startIndex = (currentPage - 1) * itemsPerPage;
-            const endIndex = Math.min(startIndex + itemsPerPage, filteredHistoryData.length);
-            const pageData = filteredHistoryData.slice(startIndex, endIndex);
-
             const tbody = document.getElementById('historyTableBody');
 
-            if (pageData.length === 0) {
+            if (currentPageData.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" class="text-center">没有找到符合条件的记录</td></tr>';
+                document.getElementById('displayStart').innerText = 0;
+                document.getElementById('displayEnd').innerText = 0;
+                document.getElementById('totalCount').innerText = totalRecords;
                 return;
             }
 
             let html = '';
-            pageData.forEach(item => {
+            currentPageData.forEach(item => {
                 const time = new Date(item.Time.replace(/-/g, '/')).toLocaleString();
+                const safeFile = item.Image_File.replace(/'/g, "\\'");
                 html += `
                 <tr>
                     <td>
@@ -502,22 +503,22 @@
                                  alt="抓拍图片"
                                  data-bs-toggle="modal"
                                  data-bs-target="#imageModal"
-                                 onclick="showImage('${item.Image_File}', '${time}', '${item.Pet_ID}')">
+                                 onclick="showImage('${safeFile}', '${time}', '${item.Pet_ID}')">
                         ` : '-'}
                     </td>
                     <td>${time}</td>
                     <td>ID: ${item.Pet_ID}</td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary me-1"
-                                onclick="showImage('${item.Image_File}', '${time}', '${item.Pet_ID}')">
+                                onclick="showImage('${safeFile}', '${time}', '${item.Pet_ID}')">
                             查看
                         </button>
                         <button class="btn btn-sm btn-outline-warning me-1"
-                                onclick="downloadImageFromRow('${item.Image_File}')">
+                                onclick="downloadImageFromRow('${safeFile}')">
                             下载
                         </button>
                         <button class="btn btn-sm btn-outline-danger"
-                                onclick="confirmDelete('${item.Image_File}', '${item.Time}', '${item.Pet_ID}')">
+                                onclick="confirmDelete('${safeFile}', '${item.Time}', '${item.Pet_ID}')">
                             删除
                         </button>
                     </td>
@@ -528,14 +529,16 @@
             tbody.innerHTML = html;
 
             // 更新显示范围文本
-            document.getElementById('displayStart').innerText = startIndex + 1;
+            const startIndex = (currentPage - 1) * itemsPerPage + 1;
+            const endIndex = Math.min(startIndex + currentPageData.length - 1, totalRecords);
+            document.getElementById('displayStart').innerText = totalRecords > 0 ? startIndex : 0;
             document.getElementById('displayEnd').innerText = endIndex;
-            document.getElementById('totalCount').innerText = filteredHistoryData.length;
+            document.getElementById('totalCount').innerText = totalRecords;
         }
 
         // 7. 分页处理
         function updatePagination() {
-            const totalPages = Math.ceil(filteredHistoryData.length / itemsPerPage);
+            const totalPages = Math.ceil(totalRecords / itemsPerPage);
             const pagination = document.getElementById('paginationContainer');
 
             let html = '';
@@ -574,8 +577,19 @@
 
         function changePage(page) {
             currentPage = page;
-            renderHistoryTable();
-            updatePagination();
+
+            if (searchResultsCache) {
+                // 搜索模式：客户端分页
+                const start = (page - 1) * itemsPerPage;
+                const end = start + itemsPerPage;
+                currentPageData = searchResultsCache.slice(start, end);
+                renderHistoryTable();
+                updatePagination();
+            } else {
+                // 普通模式：服务端分页
+                loadHistory(page);
+            }
+
             // 滚动到表格顶部
             document.querySelector('.table-responsive').scrollIntoView({ behavior: 'smooth' });
         }
@@ -661,38 +675,46 @@
             });
         }
 
-        // 9. 过滤和搜索功能
+        // 9. 过滤和搜索功能（使用服务端API）
         function applyFilters() {
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
-            const petIdFilter = document.getElementById('petIdFilter').value.toLowerCase();
-            const searchQuery = document.getElementById('searchQuery').value.toLowerCase();
+            const petIdFilter = document.getElementById('petIdFilter').value;
+            const searchQuery = document.getElementById('searchQuery').value;
 
-            filteredHistoryData = allHistoryData.filter(item => {
-                const itemDate = new Date(item.Time.replace(/-/g, '/'));
-                const itemTimeStr = item.Time.toLowerCase();
-                const itemPetId = item.Pet_ID.toString().toLowerCase();
+            // 没有筛选条件时，直接加载分页数据
+            if (!startDate && !endDate && !petIdFilter && !searchQuery) {
+                searchResultsCache = null;
+                loadHistory(1);
+                return;
+            }
 
-                // 日期过滤
-                if (startDate && itemDate < new Date(startDate)) return false;
-                if (endDate && itemDate > new Date(new Date(endDate).setHours(23, 59, 59))) return false;
+            // 使用服务端搜索API
+            fetch('/api/search_captures', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    search_term: searchQuery,
+                    pet_id_filter: petIdFilter,
+                    start_date: startDate || null,
+                    end_date: endDate || null
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                const records = Array.isArray(data) ? data : [];
+                searchResultsCache = records;
+                totalRecords = records.length;
 
-                // ID过滤
-                if (petIdFilter && !itemPetId.includes(petIdFilter)) return false;
+                const start = 0;
+                const end = itemsPerPage;
+                currentPageData = records.slice(start, end);
+                currentPage = 1;
 
-                // 搜索查询
-                if (searchQuery &&
-                    !itemTimeStr.includes(searchQuery) &&
-                    !itemPetId.includes(searchQuery)) {
-                    return false;
-                }
-
-                return true;
-            });
-
-            currentPage = 1;
-            renderHistoryTable();
-            updatePagination();
+                renderHistoryTable();
+                updatePagination();
+            })
+            .catch(err => console.error('搜索失败:', err));
         }
 
         function resetFilters() {
@@ -701,10 +723,9 @@
             document.getElementById('petIdFilter').value = '';
             document.getElementById('searchQuery').value = '';
 
-            filteredHistoryData = [...allHistoryData];
+            searchResultsCache = null;
             currentPage = 1;
-            renderHistoryTable();
-            updatePagination();
+            loadHistory(1);
         }
 
         function refreshHistory() {
@@ -712,20 +733,26 @@
         }
 
         function exportData() {
-            // 简单的CSV导出功能
-            let csvContent = "data:text/csv;charset=utf-8,时间,宠物ID,图片文件\n";
+            // 导出所有记录为CSV
+            fetch('/get_history?page=1&per_page=999999')
+                .then(res => res.json())
+                .then(data => {
+                    const records = data.records || [];
+                    let csvContent = "data:text/csv;charset=utf-8,时间,宠物ID,图片文件\n";
 
-            filteredHistoryData.forEach(item => {
-                csvContent += `"${item.Time}","${item.Pet_ID}","${item.Image_File}"\n`;
-            });
+                    records.forEach(item => {
+                        csvContent += `"${item.Time}","${item.Pet_ID}","${item.Image_File}"\n`;
+                    });
 
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", "capture_history_" + new Date().toISOString().split('T')[0] + ".csv");
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+                    const encodedUri = encodeURI(csvContent);
+                    const link = document.createElement("a");
+                    link.setAttribute("href", encodedUri);
+                    link.setAttribute("download", "capture_history_" + new Date().toISOString().split('T')[0] + ".csv");
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                })
+                .catch(err => console.error('导出数据失败:', err));
         }
 
         // 10. 页面初始化

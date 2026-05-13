@@ -35,22 +35,48 @@ class PetGuardService:
         try:
             # 确保依赖已安装
             cmd = [sys.executable, "app.py"]
-            self.process = subprocess.Popen(cmd)
+
+            # 设置环境变量以优化性能
+            env = os.environ.copy()
+            env['OPENCV_VIDEOIO_PRIORITY_MSMF'] = '0'  # 优化OpenCV性能
+            env['PYTHONUNBUFFERED'] = '1'  # 不缓冲Python输出
+
+            self.process = subprocess.Popen(cmd, env=env)
             self.logger.info("Web服务器已启动，PID: {}".format(self.process.pid))
             return True
         except Exception as e:
             self.logger.error(f"启动Web服务器失败: {e}")
             return False
 
+    def start_desktop_app(self):
+        """启动桌面应用程序"""
+        try:
+            cmd = [sys.executable, "main.py"]
+
+            # 设置环境变量以优化性能
+            env = os.environ.copy()
+            env['OPENCV_VIDEOIO_PRIORITY_MSMF'] = '0'  # 优化OpenCV性能
+            env['PYTHONUNBUFFERED'] = '1'  # 不缓冲Python输出
+
+            self.process = subprocess.Popen(cmd, env=env)
+            self.logger.info("桌面应用程序已启动，PID: {}".format(self.process.pid))
+            return True
+        except Exception as e:
+            self.logger.error(f"启动桌面应用程序失败: {e}")
+            return False
+
     def monitor_process(self):
         """监控进程状态"""
         while self.running:
             if self.process and self.process.poll() is not None:
-                self.logger.warning("Web服务器意外退出，正在重启...")
-                self.start_web_server()
+                self.logger.warning("应用程序意外退出，正在重启...")
+                if '--desktop' in sys.argv:
+                    self.start_desktop_app()
+                else:
+                    self.start_web_server()
             time.sleep(5)
 
-    def start(self):
+    def start(self, app_type="web"):
         """启动服务"""
         if self.running:
             self.logger.warning("服务已在运行")
@@ -59,13 +85,18 @@ class PetGuardService:
         self.running = True
         self.logger.info("PetGuard服务正在启动...")
 
-        if self.start_web_server():
+        if app_type == "desktop":
+            success = self.start_desktop_app()
+        else:
+            success = self.start_web_server()
+
+        if success:
             # 启动监控线程
             monitor_thread = threading.Thread(target=self.monitor_process)
             monitor_thread.daemon = True
             monitor_thread.start()
 
-            self.logger.info("PetGuard服务已启动并运行")
+            self.logger.info(f"PetGuard {app_type} 服务已启动并运行")
         else:
             self.running = False
             self.logger.error("服务启动失败")
@@ -82,11 +113,11 @@ class PetGuardService:
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.process.kill()
-                self.logger.warning("Web服务器强制终止")
+                self.logger.warning("应用程序强制终止")
 
         self.logger.info("PetGuard服务已停止")
 
-    def run_daemon(self):
+    def run_daemon(self, app_type="web"):
         """作为守护进程运行"""
         def signal_handler(signum, frame):
             self.logger.info(f"收到信号 {signum}，正在关闭服务...")
@@ -96,7 +127,7 @@ class PetGuardService:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
-        self.start()
+        self.start(app_type)
 
         try:
             while self.running:
@@ -106,5 +137,11 @@ class PetGuardService:
 
 
 if __name__ == "__main__":
+    # 检查命令行参数决定运行类型
+    app_type = "web"  # 默认运行web
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "--desktop":
+            app_type = "desktop"
+
     service = PetGuardService()
-    service.run_daemon()
+    service.run_daemon(app_type)

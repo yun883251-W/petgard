@@ -53,13 +53,17 @@ last_seen_time = {}  # 存放目标最后触发抓拍时间，避免重复抓拍
 # 全局变量用于控制监控循环
 monitoring_active = True
 
+# 共享帧缓冲区：后台监控线程写入，HTTP流读取
+latest_annotated_frame = None
+frame_buffer_lock = threading.Lock()
 
-def generate_frames():
-    global latest_status, monitoring_active
+
+def run_monitoring():
+    """后台监控线程：独立读取视频帧、执行检测、更新状态和共享帧缓冲区"""
+    global latest_status, latest_annotated_frame, monitoring_active
     cap = cv2.VideoCapture(VIDEO_SOURCE)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 20.0
     frame_count = 0
-    start_time = time.time()
+    ts = time.time()
 
     while monitoring_active:
         success, frame = cap.read()
@@ -68,45 +72,54 @@ def generate_frames():
             continue
 
         frame_count += 1
-        current_time = time.time()
-        if current_time - start_time >= 1:  # 每秒更新一次FPS
-            latest_status["fps"] = frame_count / (current_time - start_time)
+        now = time.time()
+        if now - ts >= 1:
+            latest_status["fps"] = frame_count / (now - ts)
             frame_count = 0
-            start_time = current_time
+            ts = now
 
-        # 使用配置管理器的参数
         conf_thresh = config_manager.get('detection.confidence_threshold', 0.4)
         results = detector.track(frame, conf=conf_thresh)
-        annotated_frame = results.plot()
 
         current_intruder_ids = set()
-        if results.boxes is not None and results.boxes.id is not None:
+        has_boxes = results.boxes is not None and results.boxes.id is not None
+
+        if has_boxes:
+            annotated_frame = results.plot()
             boxes = results.boxes.xyxy.cpu().numpy()
             track_ids = results.boxes.id.int().cpu().numpy()
 
             for box, tid in zip(boxes, track_ids):
                 foot_point = (int((box[0] + box[2]) / 2), int(box[3]))
-
-                # --- 核心修复：触发图片抓拍逻辑 ---
                 if fence.is_intruding(foot_point):
                     current_intruder_ids.add(tid)
-
-                    # 只抓拍一张图片，不再进行持续录像
-                    if tid not in last_seen_time or (time.time() - last_seen_time[tid] > 5):  # 至少间隔5秒才重新抓拍
-                        image_path = alert_mgr.capture_intrusion_alert(annotated_frame, tid)
+                    if tid not in last_seen_time or (time.time() - last_seen_time[tid] > 5):
+                        alert_mgr.capture_intrusion_alert(annotated_frame, tid)
                         last_seen_time[tid] = time.time()
-                        print(f"📸 [已抓拍] 目标 ID:{tid} 进入禁区，图片已保存至: {image_path}")
+        else:
+            annotated_frame = frame.copy()
 
-        # 更新 Web 状态
         latest_status["intruder_count"] = len(current_intruder_ids)
         latest_status["status_text"] = "🚨 发现违规闯入！" if len(current_intruder_ids) > 0 else "✅ 区域安全"
         latest_status["last_update"] = time.strftime("%H:%M:%S")
 
         annotated_frame = fence.draw_fence(annotated_frame, is_alert=(len(current_intruder_ids) > 0))
-        ret, buffer = cv2.imencode('.jpg', annotated_frame)
-        yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+
+        with frame_buffer_lock:
+            latest_annotated_frame = annotated_frame
 
     cap.release()
+
+
+def generate_frames():
+    """HTTP 视频流：从共享缓冲区读取最新帧并逐帧输出"""
+    global latest_annotated_frame
+    while monitoring_active:
+        with frame_buffer_lock:
+            if latest_annotated_frame is not None:
+                ret, buffer = cv2.imencode('.jpg', latest_annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+        time.sleep(0.03)  # 约 30 FPS
 
 
 # API路由部分
@@ -133,25 +146,41 @@ def get_status():
 
 @app.route('/get_history')
 def get_history():
+    """获取抓拍历史记录（支持服务端分页）"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int)
+
     history = []
     log_path = os.path.join(root_path, "data", "logs", "intrusion_history.csv")
     if os.path.exists(log_path):
         with open(log_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
-            history = list(reader)[-10:][::-1]
+            history = list(reader)
 
-    # 将历史记录转换为包含图片信息的格式
-    processed_history = []
-    for record in history:
-        processed_record = {
+    total = len(history)
+    # 倒序（最新的在前）
+    history.reverse()
+
+    # 分页
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_data = history[start:end]
+
+    # 统一格式
+    processed = []
+    for record in page_data:
+        processed.append({
             'Time': record.get('Time', ''),
             'Pet_ID': record.get('Pet_ID', ''),
-            'Image_File': record.get('Image_File', ''),  # 图片文件名
-            'has_video': bool(record.get('Video_File', ''))  # 是否有视频
-        }
-        processed_history.append(processed_record)
+            'Image_File': record.get('Image_File', ''),
+        })
 
-    return jsonify(processed_history)
+    return jsonify({
+        'records': processed,
+        'total': total,
+        'page': page,
+        'per_page': per_page
+    })
 
 
 @app.route('/get_statistics')
@@ -172,8 +201,17 @@ def serve_image(filename):
     return send_from_directory(os.path.join(root_path, "data", "images"), filename)
 
 
-@app.route('/api/config')
-def get_config():
+@app.route('/api/config', methods=['GET', 'POST'])
+def api_config():
+    if request.method == 'POST':
+        try:
+            new_config = request.get_json()
+            if new_config:
+                config_manager.update(new_config)
+                return jsonify({"success": True, "message": "配置已保存"})
+            return jsonify({"success": False, "error": "无效的配置数据"}), 400
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
     """获取当前配置"""
     return jsonify(config_manager.config)
 
@@ -247,14 +285,18 @@ def system_status():
 
 
 def start_monitoring():
-    """启动监控服务"""
+    """启动后台监控线程"""
     global monitoring_active
     monitoring_active = True
 
-    # 启动视频捕获线程
-    cap_thread = threading.Thread(target=generate_frames)
-    cap_thread.daemon = True
-    cap_thread.start()
+    monitor_thread = threading.Thread(target=run_monitoring, daemon=True)
+    monitor_thread.start()
+
+
+# 在程序关闭时清理资源
+@app.teardown_appcontext
+def shutdown_hook(error):
+    alert_mgr.shutdown()
 
 
 if __name__ == "__main__":
@@ -265,4 +307,9 @@ if __name__ == "__main__":
     start_monitoring()
 
     # 启动Flask应用
-    app.run(host=host, port=port, threaded=True)
+    try:
+        app.run(host=host, port=port, threaded=True)
+    except KeyboardInterrupt:
+        print("\n👋 正在关闭系统...")
+        monitoring_active = False
+        alert_mgr.shutdown()

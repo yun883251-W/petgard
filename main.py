@@ -4,6 +4,7 @@ import cv2
 import json
 import time
 from collections import Counter, deque
+import threading
 
 # 自动修复路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -31,12 +32,14 @@ def main(source_path):
     fps = fps if 1 < fps < 120 else 20.0
 
     # 状态管理
-    active_writers = {}
     last_seen_in_fence = {}
 
     # --- 亮点功能：类别平滑存储 ---
     # 记录每个 ID 最近 10 帧的类别，防止猫狗混淆
     id_class_history = {}
+
+    # 用于跟踪上次截图时间，防止截图过于频繁
+    last_capture_time = {}
 
     CLOSE_DELAY = 2.0
 
@@ -74,10 +77,13 @@ def main(source_path):
                         intruder_ids.add(tid)
                         last_seen_in_fence[tid] = curr_ts
 
-                        if tid not in active_writers:
-                            writer, _ = alert_mgr.create_video_writer(frame, tid, fps)
-                            active_writers[tid] = writer
-                            print(f"🚨 [警报] {label_name} (ID:{tid}) 闯入禁区！")
+                        # 控制截图频率，至少5秒截一次
+                        current_time = time.time()
+                        if tid not in last_capture_time or (current_time - last_capture_time[tid] > 5):
+                            # 异步保存截图，不会阻塞主视频流
+                            alert_mgr.capture_intrusion_alert(annotated_frame, tid)
+                            last_capture_time[tid] = current_time
+                            print(f"📸 [已抓拍] {label_name} (ID:{tid}) 闯入禁区！")
 
                     # 在画面上画出稳定后的标签
                     color = (0, 0, 255) if tid in intruder_ids else (0, 255, 0)
@@ -85,22 +91,14 @@ def main(source_path):
                     cv2.putText(annotated_frame, f"{label_name} #{tid}", (int(box[0]), int(box[1]) - 10),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-            # 延迟关闭逻辑
-            for tid in list(active_writers.keys()):
-                if tid in intruder_ids or (curr_ts - last_seen_in_fence.get(tid, 0) < CLOSE_DELAY):
-                    active_writers[tid].write(annotated_frame)
-                else:
-                    active_writers[tid].release()
-                    del active_writers[tid]
-                    print(f"✅ ID:{tid} 离开，视频已存档。")
-
             # 绘制围栏
             annotated_frame = fence.draw_fence(annotated_frame, is_alert=len(intruder_ids) > 0)
             cv2.imshow("PetGuard AI", annotated_frame)
             if cv2.waitKey(1) & 0xFF == ord('q'): break
 
     finally:
-        for w in active_writers.values(): w.release()
+        # 确保在退出前清理资源
+        alert_mgr.shutdown()
         cap.release()
         cv2.destroyAllWindows()
 

@@ -108,10 +108,18 @@ class StatisticsManager:
         }
 
     def _load_dataframe(self) -> pd.DataFrame:
-        """加载CSV数据到DataFrame"""
+        """加载CSV数据到DataFrame（兼容无表头的情况）"""
         try:
-            df = pd.read_csv(self.log_path)
+            expected_columns = ['Time', 'Pet_ID', 'Image_File', 'Status']
+            df = pd.read_csv(self.log_path, header=0)
+            # 检查第一行是否是表头
+            if df.columns.tolist() != expected_columns:
+                # 尝试作为无表头文件重新读取
+                df = pd.read_csv(self.log_path, header=None, names=expected_columns)
+                # 检查第一行是否为表头数据（而非真正的表头）
+                if df['Time'].dtype == object and df.iloc[0]['Time'] in expected_columns:
+                    # 第一行就是表头本身，跳过它
+                    df = df.iloc[1:].reset_index(drop=True)
             return df
         except Exception:
-            # 如果读取失败，返回空DataFrame
             return pd.DataFrame(columns=['Time', 'Pet_ID', 'Image_File', 'Status'])

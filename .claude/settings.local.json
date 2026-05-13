@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -c \"import sys; print\\('Python version:', sys.version\\)\")"
+      "Bash(python -c \"import sys; print\\('Python version:', sys.version\\)\")",
+      "Bash(python app.py)",
+      "Bash(curl *)",
+      "Bash(git add *)"
     ]
   }
 }
