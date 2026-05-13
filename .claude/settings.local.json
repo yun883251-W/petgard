@@ -4,7 +4,18 @@
       "Bash(python -c \"import sys; print\\('Python version:', sys.version\\)\")",
       "Bash(python app.py)",
       "Bash(curl *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git config *)",
+      "Bash(pip --version)",
+      "Bash(pip install *)",
+      "Bash(python -c ' *)",
+      "Bash(export HF_ENDPOINT=https://hf-mirror.com)",
+      "Bash(HF_ENDPOINT=https://hf-mirror.com python -c ' *)",
+      "Bash(HF_ENDPOINT=https://hf-mirror.com python app.py)",
+      "Bash(python -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(f'  {r[\\\\\"image_file\\\\\"]} score={r[\\\\\"score\\\\\"]:.3f} pet_id={r[\\\\\"pet_id\\\\\"]}'\\) for r in data['results']]\")",
+      "Bash(git checkout *)"
     ]
   }
 }
