@@ -125,9 +125,6 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Project duplicate / build copy
-PetGuard_System/
-
 # IDE-specific files
 .idea/
 .vscode/
