@@ -35,6 +35,8 @@ PORT = int(os.getenv("PORT", "5001"))
 # ── 初始化引擎 ───────────────────────────────────────
 print("正在加载图片搜索引擎（CLIP + ChromaDB）...")
 search_engine = ImageSearchEngine(persist_dir=VECTOR_DB_DIR)
+if not search_engine.get_index_stats().get("vector_available", False):
+    search_engine.index_new_images(IMAGE_SOURCE_DIR, INTRUSION_CSV)
 
 print("正在初始化 LLM 查询处理器（DeepSeek）...")
 llm_processor = LLMQueryProcessor()

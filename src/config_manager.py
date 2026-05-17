@@ -14,8 +14,12 @@ class ConfigManager:
             "detection": {
                 "model_path": "models/yolov8s.pt",
                 "confidence_threshold": 0.4,
+                "iou_threshold": 0.5,
                 "classes": [15, 16],  # 猫狗类别
-                "image_size": 640
+                "image_size": 640,
+                "tracker": "bytetrack.yaml",
+                "intrusion_confirm_frames": 2,
+                "capture_interval_seconds": 5
             },
             "fence": {
                 "polygon": [[100, 100], [200, 100], [200, 200], [100, 200]],
@@ -28,7 +32,9 @@ class ConfigManager:
             "performance": {
                 "batch_size": 1,
                 "use_gpu": True,
-                "gpu_device": 0
+                "gpu_device": 0,
+                "frame_skip": 1,
+                "half_precision": False
             },
             "ui": {
                 "web_port": 5000,
